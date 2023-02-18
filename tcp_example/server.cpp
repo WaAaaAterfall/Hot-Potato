@@ -22,6 +22,7 @@ int main(int argc, char *argv[])
   host_info.ai_flags    = AI_PASSIVE;
 
   status = getaddrinfo(hostname, port, &host_info, &host_info_list);
+
   if (status != 0) {
     cerr << "Error: cannot get address info for host" << endl;
     cerr << "  (" << hostname << "," << port << ")" << endl;
@@ -66,9 +67,11 @@ int main(int argc, char *argv[])
   char buffer[512];
   recv(client_connection_fd, buffer, 9, 0);
   buffer[9] = 0;
-
+  int i = 20;
+  send(client_connection_fd, &i, sizeof(int), 0);
   cout << "Server received: " << buffer << endl;
-
+  recv(client_connection_fd, &i, sizeof(int), 0);
+  cout << "Server received: " << i << endl;
   freeaddrinfo(host_info_list);
   close(socket_fd);
 
