@@ -23,7 +23,6 @@ int main (int argc, char * argv[]){
     int hopsNum = atoi(hopsNumber);
     assert(playerNum > 1);
     assert(hopsNum >= 0 && hopsNum <= 512);
-    //printf("Test for playerNumber: %d\n", playerNum);
 
     int status;
     int socket_fd;
@@ -80,16 +79,15 @@ int main (int argc, char * argv[]){
     //Initialize the players and connect them with ring master
     int client_connection_fd[playerNum];
     char player_hostname[playerNum][512];
+    
     for(int i = 0; i < playerNum; i++){
         client_connection_fd[i] = accept(socket_fd, (struct sockaddr *)&socket_addr, &socket_addr_len);
-        //printf("Test for client_connection_fd[i]: %d\n", client_connection_fd[i]);
         if (client_connection_fd[i] == -1) {
             fprintf(stderr, "Error: cannot accept connection on socket.\n");
             return -1;
         }
         int playerId = i;
         send(client_connection_fd[i], &playerNum, sizeof(int), 0);
-        //printf("Test for playIdenty: %s\n", playerIdenty);
         send(client_connection_fd[i], &playerId, sizeof(int), 0);
         int player_hostname_len = 0;
         recv(client_connection_fd[i], &player_hostname_len, sizeof(int), 0);
@@ -115,11 +113,13 @@ int main (int argc, char * argv[]){
             send(client_connection_fd[0], &confirmReady, sizeof(int), 0);
         }
     }
-
+    //receive ready message from every player
     for(int i = 0; i < playerNum; i++){
-        //receive ready message from every player
         int recPlayerId = 0;
-        recv(client_connection_fd[i], &recPlayerId, sizeof(int), 0);
+        int test = recv(client_connection_fd[i], &recPlayerId, sizeof(int), 0);
+        if(test < 0){
+            printf("Error: player %d is not ready", recPlayerId);
+        }
         printf("Player <%d> is ready to play.\n", recPlayerId);
     }
     
