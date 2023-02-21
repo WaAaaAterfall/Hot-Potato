@@ -6,6 +6,10 @@
 #include <assert.h>
 #include <stdio.h>
 #include "potato.h"
+#include <sys/time.h>
+#include <sys/select.h>
+#include <time.h>
+
 
 int connect_to_master(const char* hostname, const char *portNumber){
     int status;
@@ -159,6 +163,7 @@ int connect_to_left(int playerId, int playerNum, const char *portNumber, const c
         sprintf(playerConfirm, "Player %d is connected with player %d\n", playerId, playerNum - 1);
     }
     send(socket_fd_left, playerConfirm, strlen(playerConfirm), 0);
+    freeaddrinfo(host_info_list_left);
     return socket_fd_left;
 
 }
@@ -256,10 +261,73 @@ int main(int argc, char *argv[])
     }
 
     send(socket_fd, &playerId, sizeof(int), 0);
+    srand((unsigned int)time(NULL)+ playerId);
+    Potato potato;
+    int fdmax = 0;
+    int fds_list[3] = {socket_fd, player_left_fd, player_right_fd};
 
-
-    /*** Start the game***/
+    while(1){    
+        fd_set fds_set;    // master file descriptor list
+        FD_ZERO(&fds_set);    // clear the master and temp sets
+        for(int i = 0; i < 3; i++){
+            FD_SET(fds_list[i], &fds_set);
+            if(fds_list[i]>fdmax){
+                fdmax = fds_list[i];
+            }
+        }
+        int test = select(fdmax + 1, &fds_set, NULL, NULL, NULL);
+        if(test == -1){
+            printf("Error Select!\n");
+            return -1;
+        }
+        int p;
+        for(int i = 0; i < 3; i++){
+            if(FD_ISSET(fds_list[i], &fds_set)){
+                p = recv(fds_list[i], &potato, sizeof(potato), 0);
+                break;
+            }
+        }
+        if(potato.remainHops == 0){
+            //this potato is sent from master representing the game is over
+                        /*** End the game***/
+            break;
+        }
+        else if(potato.remainHops == 1){
+            potato.remainHops = 0;
+            potato.holderNum = playerId;
+            potato.trace[potato.current_round] = playerId;
+            potato.current_round +=1;
+            send(socket_fd, &potato, sizeof(potato), 0);
+            printf("I'm it\n");
+            break;
+        }
+        else{
+            printf("current hops: %d\n", potato.remainHops);
+            potato.remainHops -= 1;
+            potato.trace[potato.current_round] = playerId;
+            printf("current trace: %d, %d\n", potato.current_round, potato.trace[potato.current_round]);
+            potato.current_round +=1;
+            int send_rand = rand()%2;
+            if(send_rand == 0){
+                send(player_left_fd, &potato, sizeof(potato), 0);
+                if(playerId == 0){
+                    printf("Sending potato to %d\n", playerNum - 1);
+                }else{
+                    printf("Sending potato to %d\n", playerId - 1);
+                }
+            }else{
+                send(player_right_fd, &potato, sizeof(potato), 0);
+                if(playerId == playerNum - 1){
+                    printf("Sending potato to %d\n", 0);
+                }else{
+                    printf("Sending potato to %d\n", playerId + 1);
+                }
+            }
+        }
+    }
+    close(socket_fd_right);
+    close(player_left_fd);
+    close(player_right_fd);
     close(socket_fd);
-
     return 0;
 }

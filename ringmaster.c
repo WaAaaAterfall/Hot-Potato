@@ -6,6 +6,8 @@
 #include <time.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/time.h>
+#include <sys/select.h>
 #include <netdb.h>
 #include <errno.h>
 #include "potato.h"
@@ -77,46 +79,46 @@ int main (int argc, char * argv[]){
     socklen_t socket_addr_len = sizeof(socket_addr);
 
     //Initialize the players and connect them with ring master
-    int client_connection_fd[playerNum];
+    int player_connection_fd[playerNum];
     char player_hostname[playerNum][512];
     
     for(int i = 0; i < playerNum; i++){
-        client_connection_fd[i] = accept(socket_fd, (struct sockaddr *)&socket_addr, &socket_addr_len);
-        if (client_connection_fd[i] == -1) {
+        player_connection_fd[i] = accept(socket_fd, (struct sockaddr *)&socket_addr, &socket_addr_len);
+        if (player_connection_fd[i] == -1) {
             fprintf(stderr, "Error: cannot accept connection on socket.\n");
             return -1;
         }
         int playerId = i;
-        send(client_connection_fd[i], &playerNum, sizeof(int), 0);
-        send(client_connection_fd[i], &playerId, sizeof(int), 0);
+        send(player_connection_fd[i], &playerNum, sizeof(int), 0);
+        send(player_connection_fd[i], &playerId, sizeof(int), 0);
         int player_hostname_len = 0;
-        recv(client_connection_fd[i], &player_hostname_len, sizeof(int), 0);
-        recv(client_connection_fd[i], &player_hostname[i], player_hostname_len, 0);
+        recv(player_connection_fd[i], &player_hostname_len, sizeof(int), 0);
+        recv(player_connection_fd[i], &player_hostname[i], player_hostname_len, 0);
         player_hostname[i][player_hostname_len] = 0;
     }
 
     for(int i = 0; i < playerNum; i++){
         const char * message = "now make ring";
-        send(client_connection_fd[i], message, strlen(message), 0);
+        send(player_connection_fd[i], message, strlen(message), 0);
         //send left player's hostname 
         int left_player_id = (playerNum + i - 1) % playerNum;
-        send(client_connection_fd[i], &player_hostname[left_player_id], strlen(player_hostname[left_player_id]), 0);
+        send(player_connection_fd[i], &player_hostname[left_player_id], strlen(player_hostname[left_player_id]), 0);
         //send right player's hostname
         int right_player_id = (playerNum + i + 1) % playerNum;
-        send(client_connection_fd[i], &player_hostname[right_player_id], strlen(player_hostname[right_player_id]), 0);
+        send(player_connection_fd[i], &player_hostname[right_player_id], strlen(player_hostname[right_player_id]), 0);
         //Confirm that the socket for player 0 on player n-1 is ready
         if(i == playerNum - 1){
             int confirmReady = 0;
-            recv(client_connection_fd[i], &confirmReady, sizeof(int), 0);
+            recv(player_connection_fd[i], &confirmReady, sizeof(int), 0);
             printf("Received the confirmation from n - 1, player 0 can send request to n - 1\n");
             assert(confirmReady == 2);
-            send(client_connection_fd[0], &confirmReady, sizeof(int), 0);
+            send(player_connection_fd[0], &confirmReady, sizeof(int), 0);
         }
     }
     //receive ready message from every player
     for(int i = 0; i < playerNum; i++){
         int recPlayerId = 0;
-        int test = recv(client_connection_fd[i], &recPlayerId, sizeof(int), 0);
+        int test = recv(player_connection_fd[i], &recPlayerId, sizeof(int), 0);
         if(test < 0){
             printf("Error: player %d is not ready", recPlayerId);
         }
@@ -125,20 +127,63 @@ int main (int argc, char * argv[]){
     
 
     //Initialize the potato
-    potato ourPotato;
+    Potato ourPotato;
     ourPotato.remainHops = hopsNum;
-    srand((unsigned int)time(NULL)+0);
-    if(hopsNum == 0){
-        freeaddrinfo(host_info_list);
-        close(socket_fd);
-        return 0;
-    }
-    ourPotato.holderNum = rand() % playerNum;
-    printf("Ready to start the game, sending potato to player <%d>\n", ourPotato.holderNum);
+    ourPotato.current_round = 0;
+    Potato returnPotato;
 
-    
+    if(hopsNum > 0){
+        srand((unsigned int)time(NULL)+playerNum);
+        int holder = rand() % playerNum;
+        printf("Ready to start the game, sending potato to player <%d>\n", holder);
+        send(player_connection_fd[holder], &ourPotato, sizeof(ourPotato), 0);
+
+        //receive the potato when game is over
+        fd_set player_fds;
+        int fdmax = 0;
+        FD_ZERO(&player_fds);
+        for(int i = 0; i < playerNum; i++){
+            FD_SET(player_connection_fd[i], &player_fds);
+            if(player_connection_fd[i] > fdmax){
+                fdmax = player_connection_fd[i];
+            }
+        }
+        int test = select(fdmax+1, &player_fds, NULL, NULL, NULL);
+        if(test == -1){
+            printf("Error Select!\n");
+            return -1;
+        }
+        for (int i = 0; i < playerNum; i++) {
+            if (FD_ISSET(player_connection_fd[i], &player_fds)) {
+                recv(player_connection_fd[i], &returnPotato, sizeof(returnPotato), 0);
+                if(returnPotato.remainHops != 0){
+                    printf("Error: The potato is passed back to ringmaster when the game is not over");
+                    return -1;
+                }
+                if(returnPotato.holderNum != i){
+                    printf("Error: The potato did not come from the right player");
+                    return -1;
+                }
+                break;
+            }
+        }
+    }
+    //remainshopsNum == 0, close the game
+    for(int i = 0; i < playerNum; i++){
+        send(player_connection_fd[i], &returnPotato, sizeof(ourPotato), 0);
+    }
+    if(hopsNum != 0){
+        //print the trace
+        printf("Trace of potato: \n");
+        for(int j = 0; j < hopsNum - 1; j++){
+            printf("%d, ", returnPotato.trace[j]);
+        }
+        printf("%d\n ", returnPotato.trace[hopsNum - 1]);
+    }
+    for(int i = 0; i < playerNum; i++){
+        close(player_connection_fd[i]);
+    }
     freeaddrinfo(host_info_list);
     close(socket_fd);
-
     return 0;
 }

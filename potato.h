@@ -4,11 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-struct potato_t {
+struct Potato_t {
     int holderNum;
     int remainHops;
-    char trace[512];
+    int current_round;
+    int trace[512];
 
-}typedef potato;
+}typedef Potato;
 
 #endif
