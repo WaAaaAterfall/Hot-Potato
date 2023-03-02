@@ -46,7 +46,20 @@ int connect_to_master(const char* hostname, const char *portNumber){
     return socket_fd;
 }
 
-int setup_socket_for_right(int playerId, int playerNum, const char* portNumber){
+int get_port_number(int socket_fd){
+    struct sockaddr_in socket_info_name;
+    socklen_t name_len = sizeof(socket_info_name);
+    int error = getsockname(socket_fd, (struct sockaddr*)&socket_info_name, &name_len);
+    if(error == -1){
+        fprintf(stderr, "Error: cannot get socket info\n");
+        return -1;
+    }
+    int port = ntohs(socket_info_name.sin_port);
+    return port;
+
+}
+
+int setup_socket_for_right(int playerId, int playerNum){//, const char* portNumber){
     int status_server;
     int socket_fd_right;
     struct addrinfo host_info_server;
@@ -57,11 +70,10 @@ int setup_socket_for_right(int playerId, int playerNum, const char* portNumber){
     host_info_server.ai_socktype = SOCK_STREAM;
     host_info_server.ai_flags = AI_PASSIVE;
     char * hostname_server = NULL;
-    int port_right = atoi(portNumber) + playerId + 1;
-    char portNumber_right[strlen(portNumber)];
-    sprintf(portNumber_right, "%d", port_right);
+    int port_right = 0;//atoi(portNumber) + playerId + 1;
+    //sprintf(portNumber_right, "%d", port_right);
 
-    status_server = getaddrinfo(hostname_server, portNumber_right, &host_info_server, &host_info_list_server);
+    status_server = getaddrinfo(hostname_server, "", &host_info_server, &host_info_list_server);
     
     if (status_server != 0) {
         fprintf(stderr, "Error: cannot get address info for current server\n");
@@ -112,7 +124,7 @@ int accept_connect_from_right(int socket_fd_right, int playerId, int playerNum){
 }
 
 /**** Connect with the player to the left by sending connect request like a client*****/
-int connect_to_left(int playerId, int playerNum, const char *portNumber, const char * hostname_left){
+int connect_to_left(int playerId, int playerNum, int port_left, const char * hostname_left){
     int status_left;
     int socket_fd_left;
     struct addrinfo host_info_left;
@@ -123,13 +135,13 @@ int connect_to_left(int playerId, int playerNum, const char *portNumber, const c
     host_info_left.ai_socktype = SOCK_STREAM;
     host_info_left.ai_flags = AI_PASSIVE;
 
-    int port_left = 0;
-    if(playerId != 0){
-        port_left = atoi(portNumber) + playerId;
-    }else{
-        port_left = atoi(portNumber) + playerNum;
-    }
-    char portNumber_left[strlen(portNumber)];
+    // int port_left = 0;
+    // if(playerId != 0){
+    //     port_left = atoi(portNumber) + playerId;
+    // }else{
+    //     port_left = atoi(portNumber) + playerNum;
+    // }
+    char portNumber_left[512];
     sprintf(portNumber_left, "%d", port_left);
 
     status_left = getaddrinfo(hostname_left, portNumber_left, &host_info_left, &host_info_list_left);
@@ -168,21 +180,25 @@ int connect_to_left(int playerId, int playerNum, const char *portNumber, const c
 
 }
 
+
 int main(int argc, char *argv[])
 {
-    assert(argc == 3);
+    if(argc != 3){
+        fprintf(stderr, "The input does not satisfy the requirement.");
+    }
     //hostname and portnumber of master
     const char * hostname = argv[1];
     const char * portNumber = argv[2];
 
-    /*****    Connect with the ringmaster *****/
+    /*****    Connect with the ringmaster    *****/
     int socket_fd = connect_to_master(hostname, portNumber);
     int playerNum = 0;
     int playerId = 0;
     recv(socket_fd, &playerNum, sizeof(int), 0);
     recv(socket_fd, &playerId, sizeof(int), 0);
+    printf("Connected as player %d out of %d total players\n", playerId, playerNum);
 
-    /***Get hostname and send to ringmaster **/
+    /***   Get hostname and send to ringmaster   ***/
     char my_hostname[512];
     if(gethostname(my_hostname, 512) == -1){
         fprintf(stderr, "Cannot get my hostname\n");
@@ -197,28 +213,28 @@ int main(int argc, char *argv[])
         return -1;
     }
 
+    /** Set up the socket so that you can be the server and send to port to master **/
+    int socket_fd_right = setup_socket_for_right(playerId, playerNum);//, portNumber);
+    int port_right = get_port_number(socket_fd_right);
+    //send the port numebr of socket for right player to ringmaster
+    send(socket_fd, &port_right, sizeof(int), 0);
+    //printf("send the portnumber for right player to ringmaster, the number of %d\n", port_right);
+    
+
     /*** Received the message from the ringmaster that all players are initilized. Start to link
-     * them in to a ring ***/
+     * them into a ring ***/
     char player_init_success_message[512];
     recv(socket_fd, player_init_success_message, 13, 0);
     player_init_success_message[13] = 0;
-    printf("%s\n", player_init_success_message);
+    //printf("%s\n", player_init_success_message);
 
     char hostname_left[512];
     int rev = recv(socket_fd, &hostname_left, hostname_len, 0);
     hostname_left[hostname_len] = 0;
-    printf("Receive left player hostname: %s\n", hostname_left);
-    printf("recv_len = %d\n", rev);
-
-    char hostname_right[512];
-    rev = recv(socket_fd, &hostname_right, hostname_len, 0);
-    hostname_right[hostname_len] = 0;
-    printf("Receive right player hostname: %s\n", hostname_right);
-    printf("recv_len = %d\n", rev);
+    //printf("Receive left player hostname: %s\n", hostname_left);
 
     /**** Connect with the player to the right by receiving their message *****/
-    /** First, set up the socket so that you can be the server **/
-    int socket_fd_right = setup_socket_for_right(playerId, playerNum, portNumber);
+
     if(playerId == playerNum - 1) {
             int confirmReady = 2;
             send(socket_fd, &confirmReady, sizeof(int), 0);
@@ -227,9 +243,16 @@ int main(int argc, char *argv[])
     int player_right_fd;
     int player_left_fd;
 
+    int port_left = 0;
+
     /**** Connect with the player to the left by sending connect request like a client*****/
     if(playerId != 0){
-        player_left_fd = connect_to_left(playerId, playerNum, portNumber, hostname_left);
+        int test = recv(socket_fd, &port_left, sizeof(int), 0);
+        if(test == -1){
+            fprintf(stderr, "Cannot get the port number of left socket from ringmaster\n");
+            return -1;
+        }
+        player_left_fd = connect_to_left(playerId, playerNum, port_left, hostname_left);
         player_right_fd = accept_connect_from_right(socket_fd_right, playerId, playerNum);
     }    
     /**Player 0 will connect with the left player after connecting to the right player and receiving 
@@ -239,26 +262,31 @@ int main(int argc, char *argv[])
         int confirm = -1;
         recv(socket_fd, &confirm, sizeof(int), 0);
         assert(confirm == 2);
-        player_left_fd = connect_to_left(playerId, playerNum, portNumber, hostname_left);
+        int test = recv(socket_fd, &port_left, sizeof(int), 0);
+        if(test == -1){
+            fprintf(stderr, "Cannot get the port number of left socket from ringmaster\n");
+            return -1;
+        }
+        player_left_fd = connect_to_left(playerId, playerNum, port_left, hostname_left);
     }
 
     char play_right_confirm[512];
     int r = recv(player_right_fd, play_right_confirm, 36, 0);
-    if(r == -1){
-        printf("Did not connect\n");
-    }else{
-        play_right_confirm[36] = 0;
-        printf("%s", play_right_confirm);
-    }
+    // if(r == -1){
+    //     printf("Did not connect\n");
+    // }else{
+    //     play_right_confirm[36] = 0;
+    //     printf("%s", play_right_confirm);
+    // }
 
     char play_left_confirm[512];
     r = recv(player_left_fd, play_left_confirm, 36, 0);
-    if(r == -1){
-        printf("Did not connect\n");
-    }else{
-        play_left_confirm[36] = 0;
-        printf("%s\n", play_left_confirm);
-    }
+    // if(r == -1){
+    //     printf("Did not connect\n");
+    // }else{
+    //     play_left_confirm[36] = 0;
+    //     printf("%s\n", play_left_confirm);
+    // }
 
     send(socket_fd, &playerId, sizeof(int), 0);
     srand((unsigned int)time(NULL)+ playerId);
@@ -288,8 +316,7 @@ int main(int argc, char *argv[])
             }
         }
         if(potato.remainHops == 0){
-            //this potato is sent from master representing the game is over
-                        /*** End the game***/
+            //this potato is resent from master, so the game is over
             break;
         }
         else if(potato.remainHops == 1){
@@ -306,7 +333,7 @@ int main(int argc, char *argv[])
             potato.remainHops -= 1;
             potato.trace[potato.current_round] = playerId;
             printf("current trace: %d, %d\n", potato.current_round, potato.trace[potato.current_round]);
-            potato.current_round +=1;
+            potato.current_round += 1;
             int send_rand = rand()%2;
             if(send_rand == 0){
                 send(player_left_fd, &potato, sizeof(potato), 0);
@@ -325,6 +352,7 @@ int main(int argc, char *argv[])
             }
         }
     }
+    
     close(socket_fd_right);
     close(player_left_fd);
     close(player_right_fd);
