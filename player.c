@@ -11,7 +11,7 @@
 #include <time.h>
 
 
-int connect_to_master(const char* hostname, const char *portNumber){
+int connect_to_read_fds(const char* hostname, const char *portNumber){
     int status;
     int socket_fd;
     struct addrinfo host_info;
@@ -119,7 +119,7 @@ int accept_connect_from_right(int socket_fd_right, int playerId, int playerNum){
     }else{
         sprintf(confirm, "Player %d is connected with player %d\n", playerId, 0);
     }
-    send(player_right_fd, confirm, strlen(confirm), 0);
+    //send(player_right_fd, confirm, strlen(confirm), 0);
     return player_right_fd;
 }
 
@@ -159,7 +159,7 @@ int connect_to_left(int playerId, int playerNum, int port_left, const char * hos
         fprintf(stderr, "  (%s, %s)", hostname_left, portNumber_left);
         return -1;
     }
-    printf("Connecting to the left player %s, on portNumber %s ...\n", hostname_left, portNumber_left);
+    //printf("Connecting to the left player %s, on portNumber %s ...\n", hostname_left, portNumber_left);
     
     status_left = connect(socket_fd_left, host_info_list_left->ai_addr, host_info_list_left->ai_addrlen);
 
@@ -174,7 +174,7 @@ int connect_to_left(int playerId, int playerNum, int port_left, const char * hos
     }else{
         sprintf(playerConfirm, "Player %d is connected with player %d\n", playerId, playerNum - 1);
     }
-    send(socket_fd_left, playerConfirm, strlen(playerConfirm), 0);
+    //send(socket_fd_left, playerConfirm, strlen(playerConfirm), 0);
     freeaddrinfo(host_info_list_left);
     return socket_fd_left;
 
@@ -185,20 +185,21 @@ int main(int argc, char *argv[])
 {
     if(argc != 3){
         fprintf(stderr, "The input does not satisfy the requirement.");
+        exit(1);
     }
-    //hostname and portnumber of master
+    //hostname and portnumber of read_fds
     const char * hostname = argv[1];
     const char * portNumber = argv[2];
 
-    /*****    Connect with the ringmaster    *****/
-    int socket_fd = connect_to_master(hostname, portNumber);
+    /*****    Connect with the ringread_fds    *****/
+    int socket_fd = connect_to_read_fds(hostname, portNumber);
     int playerNum = 0;
     int playerId = 0;
     recv(socket_fd, &playerNum, sizeof(int), 0);
     recv(socket_fd, &playerId, sizeof(int), 0);
     printf("Connected as player %d out of %d total players\n", playerId, playerNum);
 
-    /***   Get hostname and send to ringmaster   ***/
+    /***   Get hostname and send to ringread_fds   ***/
     char my_hostname[512];
     if(gethostname(my_hostname, 512) == -1){
         fprintf(stderr, "Cannot get my hostname\n");
@@ -207,31 +208,28 @@ int main(int argc, char *argv[])
     int hostname_len = strlen(my_hostname);
     my_hostname[hostname_len] = 0;
     send(socket_fd, &hostname_len, sizeof(int), 0);
-    int sendToRingmaster = send(socket_fd, my_hostname, hostname_len, 0);
-    if(sendToRingmaster == -1){
-        fprintf(stderr, "Cannot send my hostname to ringmaster\n");
+    int sendToRingread_fds = send(socket_fd, my_hostname, hostname_len, 0);
+    if(sendToRingread_fds == -1){
+        fprintf(stderr, "Cannot send my hostname to ringread_fds\n");
         return -1;
     }
 
-    /** Set up the socket so that you can be the server and send to port to master **/
+    /** Set up the socket so that you can be the server and send to port to read_fds **/
     int socket_fd_right = setup_socket_for_right(playerId, playerNum);//, portNumber);
     int port_right = get_port_number(socket_fd_right);
-    //send the port numebr of socket for right player to ringmaster
+    //send the port numebr of socket for right player to ringread_fds
     send(socket_fd, &port_right, sizeof(int), 0);
-    //printf("send the portnumber for right player to ringmaster, the number of %d\n", port_right);
     
 
-    /*** Received the message from the ringmaster that all players are initilized. Start to link
+    /*** Received the message from the ringread_fds that all players are initilized. Start to link
      * them into a ring ***/
     char player_init_success_message[512];
     recv(socket_fd, player_init_success_message, 13, 0);
     player_init_success_message[13] = 0;
-    //printf("%s\n", player_init_success_message);
 
     char hostname_left[512];
     int rev = recv(socket_fd, &hostname_left, hostname_len, 0);
     hostname_left[hostname_len] = 0;
-    //printf("Receive left player hostname: %s\n", hostname_left);
 
     /**** Connect with the player to the right by receiving their message *****/
 
@@ -249,14 +247,14 @@ int main(int argc, char *argv[])
     if(playerId != 0){
         int test = recv(socket_fd, &port_left, sizeof(int), 0);
         if(test == -1){
-            fprintf(stderr, "Cannot get the port number of left socket from ringmaster\n");
+            fprintf(stderr, "Cannot get the port number of left socket from ringread_fds\n");
             return -1;
         }
         player_left_fd = connect_to_left(playerId, playerNum, port_left, hostname_left);
         player_right_fd = accept_connect_from_right(socket_fd_right, playerId, playerNum);
     }    
     /**Player 0 will connect with the left player after connecting to the right player and receiving 
-     * the message from ringmaster that n-1 player is setting up the socket**/
+     * the message from ringread_fds that n-1 player is setting up the socket**/
     else{
         player_right_fd = accept_connect_from_right(socket_fd_right, playerId, playerNum);
         int confirm = -1;
@@ -264,14 +262,14 @@ int main(int argc, char *argv[])
         assert(confirm == 2);
         int test = recv(socket_fd, &port_left, sizeof(int), 0);
         if(test == -1){
-            fprintf(stderr, "Cannot get the port number of left socket from ringmaster\n");
+            fprintf(stderr, "Cannot get the port number of left socket from ringread_fds\n");
             return -1;
         }
         player_left_fd = connect_to_left(playerId, playerNum, port_left, hostname_left);
     }
 
-    char play_right_confirm[512];
-    int r = recv(player_right_fd, play_right_confirm, 36, 0);
+    // char play_right_confirm[512];
+    // int r = recv(player_right_fd, play_right_confirm, 37, 0);
     // if(r == -1){
     //     printf("Did not connect\n");
     // }else{
@@ -279,8 +277,8 @@ int main(int argc, char *argv[])
     //     printf("%s", play_right_confirm);
     // }
 
-    char play_left_confirm[512];
-    r = recv(player_left_fd, play_left_confirm, 36, 0);
+    // char play_left_confirm[512];
+    // r = recv(player_left_fd, play_left_confirm, 37, 0);
     // if(r == -1){
     //     printf("Did not connect\n");
     // }else{
@@ -289,34 +287,45 @@ int main(int argc, char *argv[])
     // }
 
     send(socket_fd, &playerId, sizeof(int), 0);
-    srand((unsigned int)time(NULL)+ playerId);
+
     Potato potato;
     int fdmax = 0;
-    int fds_list[3] = {socket_fd, player_left_fd, player_right_fd};
+    fd_set read_fds;  // temp file 
+    srand((unsigned int)time(NULL)+ playerId);
 
     while(1){    
-        fd_set fds_set;    // master file descriptor list
-        FD_ZERO(&fds_set);    // clear the master and temp sets
-        for(int i = 0; i < 3; i++){
-            FD_SET(fds_list[i], &fds_set);
-            if(fds_list[i]>fdmax){
-                fdmax = fds_list[i];
-            }
+        FD_ZERO(&read_fds);    // clear
+        FD_SET(socket_fd, &read_fds);
+        if(socket_fd>fdmax){
+            fdmax = socket_fd;
         }
-        int test = select(fdmax + 1, &fds_set, NULL, NULL, NULL);
+        FD_SET(player_left_fd, &read_fds);
+        if(player_left_fd>fdmax){
+            fdmax = player_left_fd;
+        }
+        FD_SET(player_right_fd, &read_fds);
+        if(player_right_fd>fdmax){
+            fdmax = player_right_fd;
+        }
+        int test = select(fdmax + 1, &read_fds, NULL, NULL, NULL);
         if(test == -1){
             printf("Error Select!\n");
             return -1;
         }
-        int p;
-        for(int i = 0; i < 3; i++){
-            if(FD_ISSET(fds_list[i], &fds_set)){
-                p = recv(fds_list[i], &potato, sizeof(potato), 0);
+        int nbytes;
+        for(int i = 0; i <= fdmax; i++){
+            if(FD_ISSET(i, &read_fds)){
+                nbytes = recv(i, &potato, sizeof(potato), 0);
                 break;
             }
         }
-        if(potato.remainHops == 0){
-            //this potato is resent from master, so the game is over
+        
+        if(nbytes == 0){
+            //printf("Did not receive any message, should end the game");
+            break;
+        }
+        else if(potato.remainHops == 0){
+            fprintf(stderr, "get the potato is wrong");
             break;
         }
         else if(potato.remainHops == 1){
@@ -326,13 +335,12 @@ int main(int argc, char *argv[])
             potato.current_round +=1;
             send(socket_fd, &potato, sizeof(potato), 0);
             printf("I'm it\n");
-            break;
         }
         else{
-            printf("current hops: %d\n", potato.remainHops);
+            //printf("current hops: %d\n", potato.remainHops);
             potato.remainHops -= 1;
             potato.trace[potato.current_round] = playerId;
-            printf("current trace: %d, %d\n", potato.current_round, potato.trace[potato.current_round]);
+            //printf("current trace: %d, %d\n", potato.current_round, potato.trace[potato.current_round]);
             potato.current_round += 1;
             int send_rand = rand()%2;
             if(send_rand == 0){

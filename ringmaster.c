@@ -19,6 +19,7 @@ int main (int argc, char * argv[]){
      */
     if(argc != 4){
         fprintf(stderr, "The input does not satisfy the requirement.");
+        exit(1);
     }
     const char * portNumber = argv[1];
     const char * playerNumber = argv[2];
@@ -27,9 +28,11 @@ int main (int argc, char * argv[]){
     int hopsNum = atoi(hopsNumber);
     if(playerNum <= 1){
         fprintf(stderr, "The input player number does not satisfy the requirement.");
+        exit(1);
     }
     if(hopsNum < 0 || hopsNum > 512){
         fprintf(stderr, "The input hops number does not satisfy the requirement.");
+        exit(1);
     }
 
     int status;
@@ -104,7 +107,7 @@ int main (int argc, char * argv[]){
         player_hostname[i][player_hostname_len] = 0;
         //receive the port number of the player
         recv(player_connection_fd[i], &player_port[i], sizeof(int), 0);
-        printf("receive the port number from player %d for its right player, which is %d\n", i, player_port[i]);
+        //printf("receive the port number from player %d for its right player, which is %d\n", i, player_port[i]);
     }
 
     for(int i = 0; i < playerNum; i++){
@@ -152,8 +155,8 @@ int main (int argc, char * argv[]){
         send(player_connection_fd[holder], &ourPotato, sizeof(ourPotato), 0);
 
         //receive the potato when game is over
-        fd_set player_fds;
         int fdmax = 0;
+        fd_set player_fds;
         FD_ZERO(&player_fds);
         for(int i = 0; i < playerNum; i++){
             FD_SET(player_connection_fd[i], &player_fds);
@@ -166,11 +169,15 @@ int main (int argc, char * argv[]){
             fprintf(stderr, "Error Select!\n");
             return -1;
         }
-        for (int i = 0; i < playerNum; i++) {
-            if (FD_ISSET(player_connection_fd[i], &player_fds)) {
-                recv(player_connection_fd[i], &returnPotato, sizeof(returnPotato), 0);
+        for (int i = 0; i <= fdmax; i++) {
+            if (FD_ISSET(i, &player_fds)) {
+                recv(i, &returnPotato, sizeof(returnPotato), 0);
                 if(returnPotato.remainHops != 0){
                     fprintf(stderr, "Error: The potato is passed back to ringmaster when the game is not over");
+                    return -1;
+                }
+                if(returnPotato.holderNum != returnPotato.trace[returnPotato.current_round - 1]){
+                    fprintf(stderr, "Error: The it passed back is not right");
                     return -1;
                 }
                 break;
@@ -178,10 +185,6 @@ int main (int argc, char * argv[]){
         }
     }
     
-    //remainshopsNum == 0, close the game
-    for(int i = 0; i < playerNum; i++){
-        send(player_connection_fd[i], &returnPotato, sizeof(ourPotato), 0);
-    }
 
     //print the trace
     if(hopsNum != 0){
